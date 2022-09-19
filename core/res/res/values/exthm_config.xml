@@ -32,6 +32,9 @@
       -->
     </string-array>
 
+    <!-- Device model (Build.MODEL) to spoof for netflix, if not empty -->
+    <string name="config_netflixSpoofModel" translatable="false"></string>
+
     <!-- Whether to spoof device as Pixel XL for Google Photos -->
     <bool name="config_spoofGooglePhotos">true</bool>
 
