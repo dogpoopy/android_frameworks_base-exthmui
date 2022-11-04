@@ -1248,7 +1248,7 @@ public class Instrumentation {
         Application app = getFactory(context.getPackageName())
                 .instantiateApplication(cl, className);
         app.attach(context);
-        PropImitationHooks.setProps(app);
+        PropImitationHooks.setProps(context);
 	if (SystemProperties.getBoolean(DISGUISE_PROPS_FOR_MUSIC_APP, false)) {
             MeizuPropsUtils.setProps(packageName);
         }
@@ -1269,7 +1269,7 @@ public class Instrumentation {
             ClassNotFoundException {
         Application app = (Application)clazz.newInstance();
         app.attach(context);
-        PropImitationHooks.setProps(app);
+        PropImitationHooks.setProps(context);
 	if (SystemProperties.getBoolean(DISGUISE_PROPS_FOR_MUSIC_APP, false)) {
             MeizuPropsUtils.setProps(packageName);
         }
