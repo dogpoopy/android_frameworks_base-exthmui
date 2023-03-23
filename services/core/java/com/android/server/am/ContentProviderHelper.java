@@ -22,6 +22,9 @@ import static android.os.Process.PROC_PARENS;
 import static android.os.Process.PROC_SPACE_TERM;
 import static android.os.Process.SYSTEM_UID;
 
+import static com.android.internal.util.FrameworkStatsLog.PROVIDER_ACQUISITION_EVENT_REPORTED;
+import static com.android.internal.util.FrameworkStatsLog.PROVIDER_ACQUISITION_EVENT_REPORTED__PROC_START_TYPE__PROCESS_START_TYPE_COLD;
+import static com.android.internal.util.FrameworkStatsLog.PROVIDER_ACQUISITION_EVENT_REPORTED__PROC_START_TYPE__PROCESS_START_TYPE_WARM;
 import static com.android.server.am.ActivityManagerDebugConfig.DEBUG_MU;
 import static com.android.server.am.ActivityManagerService.TAG_MU;
 import static com.android.server.am.ProcessProfileRecord.HOSTING_COMPONENT_TYPE_PROVIDER;
@@ -73,9 +76,11 @@ import android.util.SparseArray;
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.os.BackgroundThread;
 import com.android.internal.util.ArrayUtils;
+import com.android.internal.util.FrameworkStatsLog;
 import com.android.server.LocalServices;
 import com.android.server.RescueParty;
 import com.android.server.pm.UserManagerInternal;
+import com.android.server.pm.UserManagerService;
 import com.android.server.pm.parsing.pkg.AndroidPackage;
 
 import java.io.FileDescriptor;
@@ -158,7 +163,7 @@ public class ContentProviderHelper {
     private ContentProviderHolder getContentProviderImpl(IApplicationThread caller,
             String name, IBinder token, int callingUid, String callingPackage, String callingTag,
             boolean stable, int userId) {
-        ContentProviderRecord cpr;
+        ContentProviderRecord cpr = null;
         ContentProviderConnection conn = null;
         ProviderInfo cpi = null;
         boolean providerRunning = false;
@@ -180,8 +185,21 @@ public class ContentProviderHelper {
 
             checkTime(startTime, "getContentProviderImpl: getProviderByName");
 
-            // First check if this content provider has been published...
-            cpr = mProviderMap.getProviderByName(name, userId);
+            UserManagerService userManagerService = UserManagerService.getInstance();
+
+            /*
+             For clone user profile and allowed authority, skipping finding provider and redirecting
+             it to owner profile. Ideally clone profile should not have MediaProvider instance
+             installed and mProviderMap would not have entry for clone user. This is just fallback
+             check to ensure even if MediaProvider is installed in Clone Profile, it should not be
+             used and redirect to owner user's MediaProvider.
+             */
+            //todo(b/236121588) MediaProvider should not be installed in clone profile.
+            if (!isAuthorityRedirectedForCloneProfile(name)
+                    || !userManagerService.isMediaSharedWithParent(userId)) {
+                // First check if this content provider has been published...
+                cpr = mProviderMap.getProviderByName(name, userId);
+            }
             // If that didn't work, check if it exists for user 0 and then
             // verify that it's a singleton provider before using it.
             if (cpr == null && userId != UserHandle.USER_SYSTEM) {
@@ -196,11 +214,9 @@ public class ContentProviderHelper {
                         userId = UserHandle.USER_SYSTEM;
                         checkCrossUser = false;
                     } else if (isAuthorityRedirectedForCloneProfile(name)) {
-                        UserManagerInternal umInternal = LocalServices.getService(
-                                UserManagerInternal.class);
-                        UserInfo userInfo = umInternal.getUserInfo(userId);
-
-                        if (userInfo != null && userInfo.isCloneProfile()) {
+                        if (userManagerService.isMediaSharedWithParent(userId)) {
+                            UserManagerInternal umInternal = LocalServices.getService(
+                                    UserManagerInternal.class);
                             userId = umInternal.getProfileParentId(userId);
                             checkCrossUser = false;
                         }
@@ -241,6 +257,10 @@ public class ContentProviderHelper {
                     ContentProviderHolder holder = cpr.newHolder(null, true);
                     // don't give caller the provider object, it needs to make its own.
                     holder.provider = null;
+                    FrameworkStatsLog.write(
+                            PROVIDER_ACQUISITION_EVENT_REPORTED,
+                            r.uid, callingUid,
+                            PROVIDER_ACQUISITION_EVENT_REPORTED__PROC_START_TYPE__PROCESS_START_TYPE_WARM);
                     return holder;
                 }
 
@@ -307,6 +327,10 @@ public class ContentProviderHelper {
                         dyingProc = cpr.proc;
                     } else {
                         cpr.proc.mState.setVerifiedAdj(cpr.proc.mState.getSetAdj());
+                        FrameworkStatsLog.write(
+                                PROVIDER_ACQUISITION_EVENT_REPORTED,
+                                cpr.proc.uid, callingUid,
+                                PROVIDER_ACQUISITION_EVENT_REPORTED__PROC_START_TYPE__PROCESS_START_TYPE_WARM);
                     }
                 } finally {
                     Binder.restoreCallingIdentity(origId);
@@ -479,6 +503,10 @@ public class ContentProviderHelper {
                                 } catch (RemoteException e) {
                                 }
                             }
+                            FrameworkStatsLog.write(
+                                    PROVIDER_ACQUISITION_EVENT_REPORTED,
+                                    proc.uid, callingUid,
+                                    PROVIDER_ACQUISITION_EVENT_REPORTED__PROC_START_TYPE__PROCESS_START_TYPE_WARM);
                         } else {
                             checkTime(startTime, "getContentProviderImpl: before start process");
                             proc = mService.startProcessLocked(
@@ -495,6 +523,10 @@ public class ContentProviderHelper {
                                         + ": process is bad");
                                 return null;
                             }
+                            FrameworkStatsLog.write(
+                                    PROVIDER_ACQUISITION_EVENT_REPORTED,
+                                    proc.uid, callingUid,
+                                    PROVIDER_ACQUISITION_EVENT_REPORTED__PROC_START_TYPE__PROCESS_START_TYPE_COLD);
                         }
                         cpr.launchingApp = proc;
                         mLaunchingProviders.add(cpr);

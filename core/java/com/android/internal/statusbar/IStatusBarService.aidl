@@ -231,4 +231,7 @@ interface IStatusBarService
      * Starts the default assistant app.
      */
     void startAssist(in Bundle args);
+    
+    /** Shows rear display educational dialog */
+    void showRearDisplayDialog(int currentBaseState);
 }

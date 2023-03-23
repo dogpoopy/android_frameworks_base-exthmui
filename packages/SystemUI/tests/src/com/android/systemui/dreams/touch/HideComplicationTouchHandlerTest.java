@@ -16,8 +16,6 @@
 
 package com.android.systemui.dreams.touch;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -33,8 +31,10 @@ import androidx.concurrent.futures.CallbackToFutureAdapter;
 import androidx.test.filters.SmallTest;
 
 import com.android.systemui.SysuiTestCase;
+import com.android.systemui.dreams.DreamOverlayStateController;
 import com.android.systemui.dreams.complication.Complication;
 import com.android.systemui.shared.system.InputChannelCompat;
+import com.android.systemui.statusbar.phone.StatusBarKeyguardViewManager;
 import com.android.systemui.touch.TouchInsetManager;
 import com.android.systemui.util.concurrency.FakeExecutor;
 import com.android.systemui.util.time.FakeSystemClock;
@@ -51,12 +51,16 @@ import org.mockito.MockitoAnnotations;
 @RunWith(AndroidTestingRunner.class)
 public class HideComplicationTouchHandlerTest extends SysuiTestCase {
     private static final int RESTORE_TIMEOUT = 1000;
+    private static final int HIDE_DELAY = 500;
 
     @Mock
     Complication.VisibilityController mVisibilityController;
 
     @Mock
     TouchInsetManager mTouchInsetManager;
+
+    @Mock
+    StatusBarKeyguardViewManager mStatusBarKeyguardViewManager;
 
     @Mock
     Handler mHandler;
@@ -67,11 +71,18 @@ public class HideComplicationTouchHandlerTest extends SysuiTestCase {
     @Mock
     DreamTouchHandler.TouchSession mSession;
 
-    FakeExecutor mFakeExecutor = new FakeExecutor(new FakeSystemClock());
+    @Mock
+    DreamOverlayStateController mStateController;
+
+    FakeSystemClock mClock;
+
+    FakeExecutor mFakeExecutor;
 
     @Before
     public void setup() {
         MockitoAnnotations.initMocks(this);
+        mClock = new FakeSystemClock();
+        mFakeExecutor = new FakeExecutor(mClock);
     }
 
     /**
@@ -82,12 +93,17 @@ public class HideComplicationTouchHandlerTest extends SysuiTestCase {
         final HideComplicationTouchHandler touchHandler = new HideComplicationTouchHandler(
                 mVisibilityController,
                 RESTORE_TIMEOUT,
+                HIDE_DELAY,
                 mTouchInsetManager,
+                mStatusBarKeyguardViewManager,
                 mFakeExecutor,
-                mHandler);
+                mStateController);
 
         // Report multiple active sessions.
         when(mSession.getActiveSessionCount()).thenReturn(2);
+
+        // Bouncer hidden.
+        when(mStatusBarKeyguardViewManager.isBouncerShowing()).thenReturn(false);
 
         // Start session.
         touchHandler.onSessionStart(mSession);
@@ -95,8 +111,42 @@ public class HideComplicationTouchHandlerTest extends SysuiTestCase {
         // Verify session end.
         verify(mSession).pop();
 
+        mClock.advanceTime(HIDE_DELAY);
+
         // Verify no interaction with visibility controller.
-        verify(mVisibilityController, never()).setVisibility(anyInt(), anyBoolean());
+        verify(mVisibilityController, never()).setVisibility(anyInt());
+    }
+
+    /**
+     * Ensures no actions are taken when the bouncer is showing.
+     */
+    @Test
+    public void testSessionEndWhenBouncerShowing() {
+        final HideComplicationTouchHandler touchHandler = new HideComplicationTouchHandler(
+                mVisibilityController,
+                RESTORE_TIMEOUT,
+                HIDE_DELAY,
+                mTouchInsetManager,
+                mStatusBarKeyguardViewManager,
+                mFakeExecutor,
+                mStateController);
+
+        // Report one session.
+        when(mSession.getActiveSessionCount()).thenReturn(1);
+
+        // Bouncer is showing.
+        when(mStatusBarKeyguardViewManager.isBouncerShowing()).thenReturn(true);
+
+        // Start session.
+        touchHandler.onSessionStart(mSession);
+
+        // Verify session end.
+        verify(mSession).pop();
+
+        mClock.advanceTime(HIDE_DELAY);
+
+        // Verify no interaction with visibility controller.
+        verify(mVisibilityController, never()).setVisibility(anyInt());
     }
 
     /**
@@ -107,12 +157,17 @@ public class HideComplicationTouchHandlerTest extends SysuiTestCase {
         final HideComplicationTouchHandler touchHandler = new HideComplicationTouchHandler(
                 mVisibilityController,
                 RESTORE_TIMEOUT,
+                HIDE_DELAY,
                 mTouchInsetManager,
+                mStatusBarKeyguardViewManager,
                 mFakeExecutor,
-                mHandler);
+                mStateController);
 
         // Report one session
         when(mSession.getActiveSessionCount()).thenReturn(1);
+
+        // Bouncer hidden.
+        when(mStatusBarKeyguardViewManager.isBouncerShowing()).thenReturn(false);
 
         // Start session
         touchHandler.onSessionStart(mSession);
@@ -136,8 +191,10 @@ public class HideComplicationTouchHandlerTest extends SysuiTestCase {
         // Verify session ended.
         verify(mSession).pop();
 
+        mClock.advanceTime(HIDE_DELAY);
+
         // Verify no interaction with visibility controller.
-        verify(mVisibilityController, never()).setVisibility(anyInt(), anyBoolean());
+        verify(mVisibilityController, never()).setVisibility(anyInt());
     }
 
     /**
@@ -148,12 +205,17 @@ public class HideComplicationTouchHandlerTest extends SysuiTestCase {
         final HideComplicationTouchHandler touchHandler = new HideComplicationTouchHandler(
                 mVisibilityController,
                 RESTORE_TIMEOUT,
+                HIDE_DELAY,
                 mTouchInsetManager,
+                mStatusBarKeyguardViewManager,
                 mFakeExecutor,
-                mHandler);
+                mStateController);
 
         // Report one session
         when(mSession.getActiveSessionCount()).thenReturn(1);
+
+        // Bouncer hidden.
+        when(mStatusBarKeyguardViewManager.isBouncerShowing()).thenReturn(false);
 
         // Start session
         touchHandler.onSessionStart(mSession);
@@ -176,11 +238,11 @@ public class HideComplicationTouchHandlerTest extends SysuiTestCase {
         inputEventListenerCaptor.getValue().onInputEvent(mMotionEvent);
         mFakeExecutor.runAllReady();
 
-        // Verify callback to restore visibility cancelled.
-        verify(mHandler).removeCallbacks(any());
-
+        // Verify visibility controller doesn't hide until after timeout
+        verify(mVisibilityController, never()).setVisibility(eq(View.INVISIBLE));
+        mClock.advanceTime(HIDE_DELAY);
         // Verify visibility controller told to hide complications.
-        verify(mVisibilityController).setVisibility(eq(View.INVISIBLE), anyBoolean());
+        verify(mVisibilityController).setVisibility(eq(View.INVISIBLE));
 
         Mockito.clearInvocations(mVisibilityController, mHandler);
 
@@ -190,11 +252,8 @@ public class HideComplicationTouchHandlerTest extends SysuiTestCase {
         mFakeExecutor.runAllReady();
 
         // Verify visibility controller told to show complications.
-        ArgumentCaptor<Runnable> delayRunnableCaptor = ArgumentCaptor.forClass(Runnable.class);
-        verify(mHandler).postDelayed(delayRunnableCaptor.capture(),
-                eq(Long.valueOf(RESTORE_TIMEOUT)));
-        delayRunnableCaptor.getValue().run();
-        verify(mVisibilityController).setVisibility(eq(View.VISIBLE), anyBoolean());
+        mClock.advanceTime(RESTORE_TIMEOUT);
+        verify(mVisibilityController).setVisibility(eq(View.VISIBLE));
 
         // Verify session ended.
         verify(mSession).pop();

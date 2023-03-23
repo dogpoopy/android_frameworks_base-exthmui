@@ -36,14 +36,15 @@ import androidx.annotation.VisibleForTesting;
 
 import com.android.internal.logging.UiEvent;
 import com.android.internal.logging.UiEventLogger;
+import com.android.systemui.shade.ShadeExpansionChangeEvent;
 import com.android.systemui.statusbar.NotificationShadeWindowController;
 import com.android.systemui.statusbar.phone.CentralSurfaces;
 import com.android.systemui.statusbar.phone.KeyguardBouncer;
 import com.android.systemui.statusbar.phone.StatusBarKeyguardViewManager;
-import com.android.systemui.statusbar.phone.panelstate.PanelExpansionChangeEvent;
 import com.android.wm.shell.animation.FlingAnimationUtils;
 
 import java.util.Optional;
+
 import javax.inject.Inject;
 import javax.inject.Named;
 
@@ -115,7 +116,7 @@ public class BouncerSwipeTouchHandler implements DreamTouchHandler {
 
                         if (mCapture) {
                             // Since the user is dragging the bouncer up, set scrimmed to false.
-                            mStatusBarKeyguardViewManager.showBouncer(false);
+                            mStatusBarKeyguardViewManager.showPrimaryBouncer(false);
                         }
                     }
 
@@ -153,8 +154,8 @@ public class BouncerSwipeTouchHandler implements DreamTouchHandler {
 
     private void setPanelExpansion(float expansion, float dragDownAmount) {
         mCurrentExpansion = expansion;
-        PanelExpansionChangeEvent event =
-                new PanelExpansionChangeEvent(
+        ShadeExpansionChangeEvent event =
+                new ShadeExpansionChangeEvent(
                         /* fraction= */ mCurrentExpansion,
                         /* expanded= */ false,
                         /* tracking= */ true,

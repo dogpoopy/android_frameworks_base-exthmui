@@ -14,7 +14,7 @@
   ~ See the License for the specific language governing permissions and
   ~ limitations under the License.
   -->
-<com.android.systemui.screenshot.DraggableConstraintLayout
+<com.android.systemui.clipboardoverlay.ClipboardOverlayView
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:androidprv="http://schemas.android.com/apk/prv/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -102,6 +102,7 @@
         android:layout_margin="@dimen/overlay_border_width"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
+        app:layout_constraintHorizontal_bias="0"
         app:layout_constraintBottom_toBottomOf="@id/preview_border"
         app:layout_constraintStart_toStartOf="@id/preview_border"
         app:layout_constraintEnd_toEndOf="@id/preview_border"
@@ -115,6 +116,7 @@
                   android:autoSizeMinTextSize="@dimen/clipboard_overlay_min_font"
                   android:autoSizeMaxTextSize="@dimen/clipboard_overlay_max_font"
                   android:textColor="?attr/overlayButtonTextColor"
+                  android:textColorLink="?attr/overlayButtonTextColor"
                   android:background="?androidprv:attr/colorAccentSecondary"
                   android:layout_width="@dimen/clipboard_preview_size"
                   android:layout_height="@dimen/clipboard_preview_size"/>
@@ -156,4 +158,4 @@
             android:layout_margin="@dimen/overlay_dismiss_button_margin"
             android:src="@drawable/overlay_cancel"/>
     </FrameLayout>
-</com.android.systemui.screenshot.DraggableConstraintLayout>
+</com.android.systemui.clipboardoverlay.ClipboardOverlayView>

@@ -35,6 +35,8 @@ import android.os.Parcelable;
 import android.os.UserHandle;
 import android.provider.Settings;
 import android.telephony.SubscriptionManager;
+import android.util.ArrayMap;
+import android.util.IndentingPrintWriter;
 import android.util.SparseArray;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -45,11 +47,15 @@ import android.widget.LinearLayout;
 import androidx.annotation.VisibleForTesting;
 
 import com.android.systemui.Dependency;
+import com.android.systemui.Dumpable;
 import com.android.systemui.R;
 import com.android.systemui.animation.Interpolators;
 import com.android.systemui.dagger.qualifiers.Main;
+import com.android.systemui.dump.DumpManager;
 import com.android.systemui.flags.FeatureFlags;
 import com.android.systemui.plugins.statusbar.StatusBarStateController;
+import com.android.systemui.shade.NotificationPanelViewController;
+import com.android.systemui.shade.ShadeExpansionStateManager;
 import com.android.systemui.statusbar.CommandQueue;
 import com.android.systemui.statusbar.DisableFlagsLogger.DisableState;
 import com.android.systemui.statusbar.OperatorNameView;
@@ -62,16 +68,16 @@ import com.android.systemui.statusbar.events.SystemStatusAnimationCallback;
 import com.android.systemui.statusbar.events.SystemStatusAnimationScheduler;
 import com.android.systemui.statusbar.phone.LyricViewController;
 import com.android.systemui.statusbar.phone.NotificationIconAreaController;
-import com.android.systemui.statusbar.phone.NotificationPanelViewController;
 import com.android.systemui.statusbar.phone.PhoneStatusBarView;
 import com.android.systemui.statusbar.phone.StatusBarHideIconsForBouncerManager;
 import com.android.systemui.statusbar.phone.StatusBarIconController;
 import com.android.systemui.statusbar.phone.StatusBarIconController.DarkIconManager;
+import com.android.systemui.statusbar.phone.StatusBarLocation;
 import com.android.systemui.statusbar.phone.StatusBarLocationPublisher;
 import com.android.systemui.statusbar.phone.fragment.dagger.StatusBarFragmentComponent;
+import com.android.systemui.statusbar.phone.fragment.dagger.StatusBarFragmentComponent.Startable;
 import com.android.systemui.statusbar.phone.ongoingcall.OngoingCallController;
 import com.android.systemui.statusbar.phone.ongoingcall.OngoingCallListener;
-import com.android.systemui.statusbar.phone.panelstate.PanelExpansionStateManager;
 import com.android.systemui.statusbar.policy.EncryptionHelper;
 import com.android.systemui.statusbar.policy.KeyguardStateController;
 import com.android.systemui.tuner.TunerService;
@@ -80,9 +86,12 @@ import com.android.systemui.util.CarrierConfigTracker.CarrierConfigChangedListen
 import com.android.systemui.util.CarrierConfigTracker.DefaultDataSubscriptionChangedListener;
 import com.android.systemui.util.settings.SecureSettings;
 
+import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Executor;
 
 /**
@@ -93,7 +102,7 @@ import java.util.concurrent.Executor;
 @SuppressLint("ValidFragment")
 public class CollapsedStatusBarFragment extends Fragment implements CommandQueue.Callbacks,
         StatusBarStateController.StateListener,
-        SystemStatusAnimationCallback, TunerService.Tunable {
+        SystemStatusAnimationCallback, TunerService.Tunable, Dumpable {
 
     public static final String TAG = "CollapsedStatusBarFragment";
     private static final String EXTRA_PANEL_STATE = "panel_state";
@@ -106,7 +115,7 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
     private final KeyguardStateController mKeyguardStateController;
     private final NotificationPanelViewController mNotificationPanelViewController;
     private final NetworkController mNetworkController;
-    private LinearLayout mSystemIconArea;
+    private LinearLayout mEndSideContent;
     private View mClockView;
     private View mOngoingCallChip;
     private View mNotificationIconAreaInner;
@@ -122,16 +131,19 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
     private final StatusBarLocationPublisher mLocationPublisher;
     private final FeatureFlags mFeatureFlags;
     private final NotificationIconAreaController mNotificationIconAreaController;
-    private final PanelExpansionStateManager mPanelExpansionStateManager;
+    private final ShadeExpansionStateManager mShadeExpansionStateManager;
     private final StatusBarIconController mStatusBarIconController;
     private final CarrierConfigTracker mCarrierConfigTracker;
     private final StatusBarHideIconsForBouncerManager mStatusBarHideIconsForBouncerManager;
+    private final StatusBarIconController.DarkIconManager.Factory mDarkIconManagerFactory;
     private final SecureSettings mSecureSettings;
     private final Executor mMainExecutor;
+    private final DumpManager mDumpManager;
 
     private LyricController mLyricController;
 
     private List<String> mBlockedIcons = new ArrayList<>();
+    private Map<Startable, Startable.State> mStartableStates = new ArrayMap<>();
 
     private SignalCallback mSignalCallback = new SignalCallback() {
         @Override
@@ -178,9 +190,10 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
             SystemStatusAnimationScheduler animationScheduler,
             StatusBarLocationPublisher locationPublisher,
             NotificationIconAreaController notificationIconAreaController,
-            PanelExpansionStateManager panelExpansionStateManager,
+            ShadeExpansionStateManager shadeExpansionStateManager,
             FeatureFlags featureFlags,
             StatusBarIconController statusBarIconController,
+            StatusBarIconController.DarkIconManager.Factory darkIconManagerFactory,
             StatusBarHideIconsForBouncerManager statusBarHideIconsForBouncerManager,
             KeyguardStateController keyguardStateController,
             NotificationPanelViewController notificationPanelViewController,
@@ -191,17 +204,19 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
             CollapsedStatusBarFragmentLogger collapsedStatusBarFragmentLogger,
             OperatorNameViewController.Factory operatorNameViewControllerFactory,
             SecureSettings secureSettings,
-            @Main Executor mainExecutor
+            @Main Executor mainExecutor,
+            DumpManager dumpManager
     ) {
         mStatusBarFragmentComponentFactory = statusBarFragmentComponentFactory;
         mOngoingCallController = ongoingCallController;
         mAnimationScheduler = animationScheduler;
         mLocationPublisher = locationPublisher;
         mNotificationIconAreaController = notificationIconAreaController;
-        mPanelExpansionStateManager = panelExpansionStateManager;
+        mShadeExpansionStateManager = shadeExpansionStateManager;
         mFeatureFlags = featureFlags;
         mStatusBarIconController = statusBarIconController;
         mStatusBarHideIconsForBouncerManager = statusBarHideIconsForBouncerManager;
+        mDarkIconManagerFactory = darkIconManagerFactory;
         mKeyguardStateController = keyguardStateController;
         mNotificationPanelViewController = notificationPanelViewController;
         mNetworkController = networkController;
@@ -212,6 +227,7 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
         mOperatorNameViewControllerFactory = operatorNameViewControllerFactory;
         mSecureSettings = secureSettings;
         mMainExecutor = mainExecutor;
+        mDumpManager = dumpManager;
     }
 
     @Override
@@ -223,8 +239,15 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
     @Override
     public void onViewCreated(View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
+        mDumpManager.registerDumpable(getClass().getSimpleName(), this);
         mStatusBarFragmentComponent = mStatusBarFragmentComponentFactory.create(this);
         mStatusBarFragmentComponent.init();
+        mStartableStates.clear();
+        for (Startable startable : mStatusBarFragmentComponent.getStartables()) {
+            mStartableStates.put(startable, Startable.State.STARTING);
+            startable.start();
+            mStartableStates.put(startable, Startable.State.STARTED);
+        }
 
         mStatusBar = (PhoneStatusBarView) view;
         View contents = mStatusBar.findViewById(R.id.status_bar_contents);
@@ -234,14 +257,15 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
             mStatusBar.restoreHierarchyState(
                     savedInstanceState.getSparseParcelableArray(EXTRA_PANEL_STATE));
         }
-        mDarkIconManager = new DarkIconManager(view.findViewById(R.id.statusIcons), mFeatureFlags);
+        mDarkIconManager = mDarkIconManagerFactory.create(
+                view.findViewById(R.id.statusIcons), StatusBarLocation.HOME);
         mDarkIconManager.setShouldLog(true);
         updateBlockedIcons();
         mStatusBarIconController.addIconGroup(mDarkIconManager);
-        mSystemIconArea = mStatusBar.findViewById(R.id.system_icon_area);
+        mEndSideContent = mStatusBar.findViewById(R.id.status_bar_end_side_content);
         mClockView = mStatusBar.findViewById(R.id.clock);
         mOngoingCallChip = mStatusBar.findViewById(R.id.ongoing_call_chip);
-        showSystemIconArea(false);
+        showEndSideContent(false);
         showClock(false);
         initEmergencyCryptkeeperText();
         initOperatorName();
@@ -250,7 +274,7 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
         mStatusBarFragmentComponent.getHeadsUpAppearanceController().setLyricViewController(mLyricController);
         Dependency.get(TunerService.class).addTunable(this, Settings.Secure.STATUS_BAR_SHOW_LYRIC);
         mSystemEventAnimator =
-                new StatusBarSystemEventAnimator(mSystemIconArea, getResources());
+                new StatusBarSystemEventAnimator(mEndSideContent, getResources());
         mCarrierConfigTracker.addCallback(mCarrierConfigCallback);
         mCarrierConfigTracker.addDefaultDataSubscriptionChangedListener(mDefaultDataListener);
     }
@@ -330,6 +354,13 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
         }
         mCarrierConfigTracker.removeCallback(mCarrierConfigCallback);
         mCarrierConfigTracker.removeDataSubscriptionChangedListener(mDefaultDataListener);
+
+        for (Startable startable : mStatusBarFragmentComponent.getStartables()) {
+            mStartableStates.put(startable, Startable.State.STOPPING);
+            startable.stop();
+            mStartableStates.put(startable, Startable.State.STOPPED);
+        }
+        mDumpManager.unregisterDumpable(getClass().getSimpleName());
     }
 
     @Override
@@ -388,10 +419,10 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
         mDisabled2 = state2;
         if ((diff1 & DISABLE_SYSTEM_INFO) != 0 || ((diff2 & DISABLE2_SYSTEM_ICONS) != 0)) {
             if ((state1 & DISABLE_SYSTEM_INFO) != 0 || ((state2 & DISABLE2_SYSTEM_ICONS) != 0)) {
-                hideSystemIconArea(animate);
+                hideEndSideContent(animate);
                 hideOperatorName(animate);
             } else {
-                showSystemIconArea(animate);
+                showEndSideContent(animate);
                 showOperatorName(animate);
             }
         }
@@ -431,7 +462,6 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
             state |= DISABLE_CLOCK;
         }
 
-
         if (mNetworkController != null && EncryptionHelper.IS_DATA_ENCRYPTED) {
             if (mNetworkController.hasEmergencyCryptKeeperText()) {
                 state |= DISABLE_NOTIFICATION_ICONS;
@@ -439,13 +469,6 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
             if (!mNetworkController.isRadioOn()) {
                 state |= DISABLE_SYSTEM_INFO;
             }
-        }
-
-        // The shelf will be hidden when dozing with a custom clock, we must show notification
-        // icons in this occasion.
-        if (mStatusBarStateController.isDozing()
-                && mNotificationPanelViewController.hasCustomClock()) {
-            state |= DISABLE_CLOCK | DISABLE_SYSTEM_INFO;
         }
 
         if (mOngoingCallController.hasOngoingCall()) {
@@ -491,26 +514,26 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
     }
 
     private boolean shouldHideNotificationIcons() {
-        if (!mPanelExpansionStateManager.isClosed()
+        if (!mShadeExpansionStateManager.isClosed()
                 && mNotificationPanelViewController.hideStatusBarIconsWhenExpanded()) {
             return true;
         }
         return mStatusBarHideIconsForBouncerManager.getShouldHideStatusBarIconsForBouncer();
     }
 
-    private void hideSystemIconArea(boolean animate) {
-        animateHide(mSystemIconArea, animate);
+    private void hideEndSideContent(boolean animate) {
+        animateHide(mEndSideContent, animate);
     }
 
-    private void showSystemIconArea(boolean animate) {
+    private void showEndSideContent(boolean animate) {
         // Only show the system icon area if we are not currently animating
         int state = mAnimationScheduler.getAnimationState();
         if (state == IDLE || state == SHOWING_PERSISTENT_DOT) {
-            animateShow(mSystemIconArea, animate);
+            animateShow(mEndSideContent, animate);
         } else {
             // We are in the middle of a system status event animation, which will animate the
             // alpha (but not the visibility). Allow the view to become visible again
-            mSystemIconArea.setVisibility(View.VISIBLE);
+            mEndSideContent.setVisibility(View.VISIBLE);
         }
     }
 
@@ -537,7 +560,7 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
      * don't set the clock GONE otherwise it'll mess up the animation.
      */
     private int clockHiddenMode() {
-        if (!mPanelExpansionStateManager.isClosed() && !mKeyguardStateController.isShowing()
+        if (!mShadeExpansionStateManager.isClosed() && !mKeyguardStateController.isShowing()
                 && !mStatusBarStateController.isDozing()) {
             return View.INVISIBLE;
         }
@@ -704,7 +727,7 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
 
         public LyricController(Context context, View statusBar) {
             super(context, statusBar);
-            mLeftSide = statusBar.findViewById(R.id.status_bar_left_side);
+            mLeftSide = statusBar.findViewById(R.id.status_bar_start_side_except_heads_up);
         }
 
         public void showLyricView(boolean animate) {
@@ -719,6 +742,25 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
         public void hideLyricView(boolean animate) {
             animateHide(getView(), animate);
             animateShow(mLeftSide, animate);
+        }
+    }
+    
+    @Override
+    public void dump(PrintWriter printWriter, String[] args) {
+        IndentingPrintWriter pw = new IndentingPrintWriter(printWriter, /* singleIndent= */"  ");
+        StatusBarFragmentComponent component = mStatusBarFragmentComponent;
+        if (component == null) {
+            pw.println("StatusBarFragmentComponent is null");
+        } else {
+            Set<Startable> startables = component.getStartables();
+            pw.println("Startables: " + startables.size());
+            pw.increaseIndent();
+            for (Startable startable : startables) {
+                Startable.State startableState = mStartableStates.getOrDefault(startable,
+                        Startable.State.NONE);
+                pw.println(startable + ", state: " + startableState);
+            }
+            pw.decreaseIndent();
         }
     }
 }

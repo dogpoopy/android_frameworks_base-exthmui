@@ -21,8 +21,6 @@ import android.app.Activity;
 import android.os.Bundle;
 import android.text.TextUtils;
 
-import com.android.internal.R;
-
 /**
  * The Activity used by the {@link DreamService} to draw screensaver content
  * on the screen. This activity runs in dream application's process, but is started by a
@@ -46,6 +44,8 @@ import com.android.internal.R;
 public class DreamActivity extends Activity {
     static final String EXTRA_CALLBACK = "binder";
     static final String EXTRA_DREAM_TITLE = "title";
+    @Nullable
+    private DreamService.DreamActivityCallbacks mCallback;
 
     public DreamActivity() {}
 
@@ -59,24 +59,19 @@ public class DreamActivity extends Activity {
         }
 
         final Bundle extras = getIntent().getExtras();
-        final DreamService.DreamActivityCallback callback =
-                (DreamService.DreamActivityCallback) extras.getBinder(EXTRA_CALLBACK);
+        mCallback = (DreamService.DreamActivityCallbacks) extras.getBinder(EXTRA_CALLBACK);
 
-        if (callback != null) {
-            callback.onActivityCreated(this);
+        if (mCallback != null) {
+            mCallback.onActivityCreated(this);
         }
     }
 
     @Override
-    public void onResume() {
-        super.onResume();
-        overridePendingTransition(R.anim.dream_activity_open_enter,
-                                  R.anim.dream_activity_open_exit);
-    }
+    public void onDestroy() {
+        if (mCallback != null) {
+            mCallback.onActivityDestroyed();
+        }
 
-    @Override
-    public void finishAndRemoveTask() {
-        super.finishAndRemoveTask();
-        overridePendingTransition(0, R.anim.dream_activity_close_exit);
+        super.onDestroy();
     }
 }

@@ -93,6 +93,17 @@ public class SystemUIDialog extends AlertDialog implements ViewRootImpl.ConfigCh
     }
 
     public SystemUIDialog(Context context, int theme, boolean dismissOnDeviceLock) {
+        // TODO(b/219008720): Remove those calls to Dependency.get by introducing a
+        // SystemUIDialogFactory and make all other dialogs create a SystemUIDialog to which we set
+        // the content and attach listeners.
+        this(context, theme, dismissOnDeviceLock, Dependency.get(SystemUIDialogManager.class),
+                Dependency.get(SysUiState.class), Dependency.get(BroadcastDispatcher.class),
+                Dependency.get(DialogLaunchAnimator.class));
+    }
+
+    public SystemUIDialog(Context context, int theme, boolean dismissOnDeviceLock,
+            SystemUIDialogManager dialogManager, SysUiState sysUiState,
+            BroadcastDispatcher broadcastDispatcher, DialogLaunchAnimator dialogLaunchAnimator) {
         super(context, theme);
         mContext = context;
 
@@ -101,13 +112,10 @@ public class SystemUIDialog extends AlertDialog implements ViewRootImpl.ConfigCh
         attrs.setTitle(getClass().getSimpleName());
         getWindow().setAttributes(attrs);
 
-        mDismissReceiver = dismissOnDeviceLock ? new DismissReceiver(this) : null;
-
-        // TODO(b/219008720): Remove those calls to Dependency.get by introducing a
-        // SystemUIDialogFactory and make all other dialogs create a SystemUIDialog to which we set
-        // the content and attach listeners.
-        mDialogManager = Dependency.get(SystemUIDialogManager.class);
-        mSysUiState = Dependency.get(SysUiState.class);
+        mDismissReceiver = dismissOnDeviceLock ? new DismissReceiver(this, broadcastDispatcher,
+                dialogLaunchAnimator) : null;
+        mDialogManager = dialogManager;
+        mSysUiState = sysUiState;
     }
 
     @Override
@@ -181,7 +189,8 @@ public class SystemUIDialog extends AlertDialog implements ViewRootImpl.ConfigCh
         // for foldables that often go from large <=> small screen when folding/unfolding.
         ViewRootImpl.addConfigCallback(this);
         mDialogManager.setShowing(this, true);
-        mSysUiState.setFlag(QuickStepContract.SYSUI_STATE_DIALOG_SHOWING, true);
+        mSysUiState.setFlag(QuickStepContract.SYSUI_STATE_DIALOG_SHOWING, true)
+                .commitUpdate(mContext.getDisplayId());
     }
 
     @Override
@@ -194,7 +203,8 @@ public class SystemUIDialog extends AlertDialog implements ViewRootImpl.ConfigCh
 
         ViewRootImpl.removeConfigCallback(this);
         mDialogManager.setShowing(this, false);
-        mSysUiState.setFlag(QuickStepContract.SYSUI_STATE_DIALOG_SHOWING, false);
+        mSysUiState.setFlag(QuickStepContract.SYSUI_STATE_DIALOG_SHOWING, false)
+                .commitUpdate(mContext.getDisplayId());
     }
 
     public void setShowForAllUsers(boolean show) {
@@ -326,7 +336,10 @@ public class SystemUIDialog extends AlertDialog implements ViewRootImpl.ConfigCh
      * @param dismissAction An action to run when the dialog is dismissed.
      */
     public static void registerDismissListener(Dialog dialog, @Nullable Runnable dismissAction) {
-        DismissReceiver dismissReceiver = new DismissReceiver(dialog);
+        // TODO(b/219008720): Remove those calls to Dependency.get.
+        DismissReceiver dismissReceiver = new DismissReceiver(dialog,
+                Dependency.get(BroadcastDispatcher.class),
+                Dependency.get(DialogLaunchAnimator.class));
         dialog.setOnDismissListener(d -> {
             dismissReceiver.unregister();
             if (dismissAction != null) dismissAction.run();
@@ -408,11 +421,11 @@ public class SystemUIDialog extends AlertDialog implements ViewRootImpl.ConfigCh
         private final BroadcastDispatcher mBroadcastDispatcher;
         private final DialogLaunchAnimator mDialogLaunchAnimator;
 
-        DismissReceiver(Dialog dialog) {
+        DismissReceiver(Dialog dialog, BroadcastDispatcher broadcastDispatcher,
+                DialogLaunchAnimator dialogLaunchAnimator) {
             mDialog = dialog;
-            // TODO(b/219008720): Remove those calls to Dependency.get.
-            mBroadcastDispatcher = Dependency.get(BroadcastDispatcher.class);
-            mDialogLaunchAnimator = Dependency.get(DialogLaunchAnimator.class);
+            mBroadcastDispatcher = broadcastDispatcher;
+            mDialogLaunchAnimator = dialogLaunchAnimator;
         }
 
         void register() {

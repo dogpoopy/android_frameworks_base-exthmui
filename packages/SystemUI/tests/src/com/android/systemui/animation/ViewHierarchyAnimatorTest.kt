@@ -207,25 +207,30 @@ ViewHierarchyAnimatorTest : SysuiTestCase() {
     }
 
     @Test
+    fun animatesInvisibleViews() {
+        rootView.layout(10 /* l */, 10 /* t */, 50 /* r */, 50 /* b */)
+        rootView.visibility = View.INVISIBLE
+
+        val success = ViewHierarchyAnimator.animate(rootView)
+        // Change all bounds.
+        rootView.layout(0 /* l */, 15 /* t */, 70 /* r */, 80 /* b */)
+
+        assertTrue(success)
+        assertNotNull(rootView.getTag(R.id.tag_animator))
+        // The initial values should be those of the previous layout.
+        checkBounds(rootView, l = 10, t = 10, r = 50, b = 50)
+        endAnimation(rootView)
+        assertNull(rootView.getTag(R.id.tag_animator))
+        // The end values should be those of the latest layout.
+        checkBounds(rootView, l = 0, t = 15, r = 70, b = 80)
+    }
+
+    @Test
     fun animatesAppearingViewsFromStartToEnd() {
         // Starting GONE.
         rootView.visibility = View.GONE
         rootView.layout(0 /* l */, 50 /* t */, 50 /* r */, 100 /* b */)
         var success = ViewHierarchyAnimator.animateAddition(rootView)
-        rootView.visibility = View.VISIBLE
-        rootView.layout(0 /* l */, 100 /* t */, 100 /* r */, 200 /* b */)
-
-        assertTrue(success)
-        assertNotNull(rootView.getTag(R.id.tag_animator))
-        checkBounds(rootView, l = 50, t = 150, r = 50, b = 150)
-        endAnimation(rootView)
-        assertNull(rootView.getTag(R.id.tag_animator))
-        checkBounds(rootView, l = 0, t = 100, r = 100, b = 200)
-
-        // Starting INVISIBLE.
-        rootView.visibility = View.INVISIBLE
-        rootView.layout(0 /* l */, 50 /* t */, 50 /* r */, 100 /* b */)
-        success = ViewHierarchyAnimator.animateAddition(rootView)
         rootView.visibility = View.VISIBLE
         rootView.layout(0 /* l */, 100 /* t */, 100 /* r */, 200 /* b */)
 
@@ -659,7 +664,61 @@ ViewHierarchyAnimatorTest : SysuiTestCase() {
     }
 
     @Test
-    fun animatesViewRemovalFromStartToEnd() {
+    fun animateAddition_runnableRunsWhenAnimationEnds() {
+        var runnableRun = false
+        val onAnimationEndRunnable = { runnableRun = true }
+
+        ViewHierarchyAnimator.animateAddition(
+                rootView,
+                origin = ViewHierarchyAnimator.Hotspot.CENTER,
+                includeMargins = true,
+                onAnimationEnd = onAnimationEndRunnable
+        )
+        rootView.layout(50 /* l */, 50 /* t */, 100 /* r */, 100 /* b */)
+
+        endAnimation(rootView)
+
+        assertEquals(true, runnableRun)
+    }
+
+    @Test
+    fun animateAddition_runnableDoesNotRunWhenAnimationCancelled() {
+        var runnableRun = false
+        val onAnimationEndRunnable = { runnableRun = true }
+
+        ViewHierarchyAnimator.animateAddition(
+            rootView,
+            origin = ViewHierarchyAnimator.Hotspot.CENTER,
+            includeMargins = true,
+            onAnimationEnd = onAnimationEndRunnable
+        )
+        rootView.layout(50 /* l */, 50 /* t */, 100 /* r */, 100 /* b */)
+
+        cancelAnimation(rootView)
+
+        assertEquals(false, runnableRun)
+    }
+
+    @Test
+    fun animationAddition_runnableDoesNotRunWhenOnlyPartwayThroughAnimation() {
+        var runnableRun = false
+        val onAnimationEndRunnable = { runnableRun = true }
+
+        ViewHierarchyAnimator.animateAddition(
+            rootView,
+            origin = ViewHierarchyAnimator.Hotspot.CENTER,
+            includeMargins = true,
+            onAnimationEnd = onAnimationEndRunnable
+        )
+        rootView.layout(50 /* l */, 50 /* t */, 100 /* r */, 100 /* b */)
+
+        advanceAnimation(rootView, 0.5f)
+
+        assertEquals(false, runnableRun)
+    }
+
+    @Test
+    fun animatesViewRemovalFromStartToEnd_viewHasSiblings() {
         setUpRootWithChildren()
 
         val child = rootView.getChildAt(0)
@@ -680,6 +739,35 @@ ViewHierarchyAnimatorTest : SysuiTestCase() {
         endAnimation(child)
         assertEquals(1, rootView.childCount)
         assertFalse(child in rootView.children)
+    }
+
+    @Test
+    fun animatesViewRemovalFromStartToEnd_viewHasNoSiblings() {
+        rootView = LinearLayout(mContext)
+        (rootView as LinearLayout).orientation = LinearLayout.HORIZONTAL
+        (rootView as LinearLayout).weightSum = 1f
+
+        val onlyChild = View(mContext)
+        rootView.addView(onlyChild)
+        forceLayout()
+
+        val success = ViewHierarchyAnimator.animateRemoval(
+            onlyChild,
+            destination = ViewHierarchyAnimator.Hotspot.LEFT,
+            interpolator = Interpolators.LINEAR
+        )
+
+        assertTrue(success)
+        assertNotNull(onlyChild.getTag(R.id.tag_animator))
+        checkBounds(onlyChild, l = 0, t = 0, r = 200, b = 100)
+        advanceAnimation(onlyChild, 0.5f)
+        checkBounds(onlyChild, l = 0, t = 0, r = 100, b = 100)
+        advanceAnimation(onlyChild, 1.0f)
+        checkBounds(onlyChild, l = 0, t = 0, r = 0, b = 100)
+        endAnimation(rootView)
+        endAnimation(onlyChild)
+        assertEquals(0, rootView.childCount)
+        assertFalse(onlyChild in rootView.children)
     }
 
     @Test
@@ -847,6 +935,251 @@ ViewHierarchyAnimatorTest : SysuiTestCase() {
         checkBounds(remainingChild, l = 0, t = 0, r = 100, b = 100)
     }
 
+    /* ******** start of animatesViewRemoval_includeMarginsTrue tests ******** */
+    @Test
+    fun animatesViewRemoval_includeMarginsTrue_center() {
+        setUpRootWithChildren(includeMarginsOnFirstChild = true)
+        val removedChild = rootView.getChildAt(0)
+        val originalLeft = removedChild.left
+        val originalTop = removedChild.top
+        val originalRight = removedChild.right
+        val originalBottom = removedChild.bottom
+
+        val success = ViewHierarchyAnimator.animateRemoval(
+            removedChild,
+            destination = ViewHierarchyAnimator.Hotspot.CENTER,
+            includeMargins = true,
+        )
+        forceLayout()
+
+        assertTrue(success)
+        assertNotNull(removedChild.getTag(R.id.tag_animator))
+        advanceAnimation(removedChild, 1.0f)
+        val expectedX = ((originalLeft - M_LEFT) + (originalRight + M_RIGHT)) / 2
+        val expectedY = ((originalTop - M_TOP) + (originalBottom + M_BOTTOM)) / 2
+
+        checkBounds(
+            removedChild,
+            l = expectedX,
+            t = expectedY,
+            r = expectedX,
+            b = expectedY
+        )
+    }
+
+    @Test
+    fun animatesViewRemoval_includeMarginsTrue_left() {
+        setUpRootWithChildren(includeMarginsOnFirstChild = true)
+        val removedChild = rootView.getChildAt(0)
+        val originalLeft = removedChild.left
+        val originalTop = removedChild.top
+        val originalBottom = removedChild.bottom
+
+        val success = ViewHierarchyAnimator.animateRemoval(
+            removedChild,
+            destination = ViewHierarchyAnimator.Hotspot.LEFT,
+            includeMargins = true,
+        )
+        forceLayout()
+
+        assertTrue(success)
+        assertNotNull(removedChild.getTag(R.id.tag_animator))
+        advanceAnimation(removedChild, 1.0f)
+        checkBounds(
+            removedChild,
+            l = originalLeft - M_LEFT,
+            t = originalTop,
+            r = originalLeft - M_LEFT,
+            b = originalBottom
+        )
+    }
+
+    @Test
+    fun animatesViewRemoval_includeMarginsTrue_topLeft() {
+        setUpRootWithChildren(includeMarginsOnFirstChild = true)
+        val removedChild = rootView.getChildAt(0)
+        val originalLeft = removedChild.left
+        val originalTop = removedChild.top
+
+        val success = ViewHierarchyAnimator.animateRemoval(
+            removedChild,
+            destination = ViewHierarchyAnimator.Hotspot.TOP_LEFT,
+            includeMargins = true,
+        )
+        forceLayout()
+
+        assertTrue(success)
+        assertNotNull(removedChild.getTag(R.id.tag_animator))
+        advanceAnimation(removedChild, 1.0f)
+        checkBounds(
+            removedChild,
+            l = originalLeft - M_LEFT,
+            t = originalTop - M_TOP,
+            r = originalLeft - M_LEFT,
+            b = originalTop - M_TOP
+        )
+    }
+
+    @Test
+    fun animatesViewRemoval_includeMarginsTrue_top() {
+        setUpRootWithChildren(includeMarginsOnFirstChild = true)
+        val removedChild = rootView.getChildAt(0)
+        val originalLeft = removedChild.left
+        val originalTop = removedChild.top
+        val originalRight = removedChild.right
+
+        val success = ViewHierarchyAnimator.animateRemoval(
+            removedChild,
+            destination = ViewHierarchyAnimator.Hotspot.TOP,
+            includeMargins = true,
+        )
+        forceLayout()
+
+        assertTrue(success)
+        assertNotNull(removedChild.getTag(R.id.tag_animator))
+        advanceAnimation(removedChild, 1.0f)
+        checkBounds(
+            removedChild,
+            l = originalLeft,
+            t = originalTop - M_TOP,
+            r = originalRight,
+            b = originalTop - M_TOP
+        )
+    }
+
+    @Test
+    fun animatesViewRemoval_includeMarginsTrue_topRight() {
+        setUpRootWithChildren(includeMarginsOnFirstChild = true)
+        val removedChild = rootView.getChildAt(0)
+        val originalTop = removedChild.top
+        val originalRight = removedChild.right
+
+        val success = ViewHierarchyAnimator.animateRemoval(
+            removedChild,
+            destination = ViewHierarchyAnimator.Hotspot.TOP_RIGHT,
+            includeMargins = true,
+        )
+        forceLayout()
+
+        assertTrue(success)
+        assertNotNull(removedChild.getTag(R.id.tag_animator))
+        advanceAnimation(removedChild, 1.0f)
+        checkBounds(
+            removedChild,
+            l = originalRight + M_RIGHT,
+            t = originalTop - M_TOP,
+            r = originalRight + M_RIGHT,
+            b = originalTop - M_TOP
+        )
+    }
+
+    @Test
+    fun animatesViewRemoval_includeMarginsTrue_right() {
+        setUpRootWithChildren(includeMarginsOnFirstChild = true)
+        val removedChild = rootView.getChildAt(0)
+        val originalTop = removedChild.top
+        val originalRight = removedChild.right
+        val originalBottom = removedChild.bottom
+
+        val success = ViewHierarchyAnimator.animateRemoval(
+            removedChild,
+            destination = ViewHierarchyAnimator.Hotspot.RIGHT,
+            includeMargins = true,
+        )
+        forceLayout()
+
+        assertTrue(success)
+        assertNotNull(removedChild.getTag(R.id.tag_animator))
+        advanceAnimation(removedChild, 1.0f)
+        checkBounds(
+            removedChild,
+            l = originalRight + M_RIGHT,
+            t = originalTop,
+            r = originalRight + M_RIGHT,
+            b = originalBottom
+        )
+    }
+
+    @Test
+    fun animatesViewRemoval_includeMarginsTrue_bottomRight() {
+        setUpRootWithChildren(includeMarginsOnFirstChild = true)
+        val removedChild = rootView.getChildAt(0)
+        val originalRight = removedChild.right
+        val originalBottom = removedChild.bottom
+
+        val success = ViewHierarchyAnimator.animateRemoval(
+            removedChild,
+            destination = ViewHierarchyAnimator.Hotspot.BOTTOM_RIGHT,
+            includeMargins = true,
+        )
+        forceLayout()
+
+        assertTrue(success)
+        assertNotNull(removedChild.getTag(R.id.tag_animator))
+        advanceAnimation(removedChild, 1.0f)
+        checkBounds(
+            removedChild,
+            l = originalRight + M_RIGHT,
+            t = originalBottom + M_BOTTOM,
+            r = originalRight + M_RIGHT,
+            b = originalBottom + M_BOTTOM
+        )
+    }
+
+    @Test
+    fun animatesViewRemoval_includeMarginsTrue_bottom() {
+        setUpRootWithChildren(includeMarginsOnFirstChild = true)
+        val removedChild = rootView.getChildAt(0)
+        val originalLeft = removedChild.left
+        val originalRight = removedChild.right
+        val originalBottom = removedChild.bottom
+
+        val success = ViewHierarchyAnimator.animateRemoval(
+            removedChild,
+            destination = ViewHierarchyAnimator.Hotspot.BOTTOM,
+            includeMargins = true,
+        )
+        forceLayout()
+
+        assertTrue(success)
+        assertNotNull(removedChild.getTag(R.id.tag_animator))
+        advanceAnimation(removedChild, 1.0f)
+        checkBounds(
+            removedChild,
+            l = originalLeft,
+            t = originalBottom + M_BOTTOM,
+            r = originalRight,
+            b = originalBottom + M_BOTTOM
+        )
+    }
+
+    @Test
+    fun animatesViewRemoval_includeMarginsTrue_bottomLeft() {
+        setUpRootWithChildren(includeMarginsOnFirstChild = true)
+        val removedChild = rootView.getChildAt(0)
+        val originalLeft = removedChild.left
+        val originalBottom = removedChild.bottom
+
+        val success = ViewHierarchyAnimator.animateRemoval(
+            removedChild,
+            destination = ViewHierarchyAnimator.Hotspot.BOTTOM_LEFT,
+            includeMargins = true,
+        )
+        forceLayout()
+
+        assertTrue(success)
+        assertNotNull(removedChild.getTag(R.id.tag_animator))
+        advanceAnimation(removedChild, 1.0f)
+        checkBounds(
+            removedChild,
+            l = originalLeft - M_LEFT,
+            t = originalBottom + M_BOTTOM,
+            r = originalLeft - M_LEFT,
+            b = originalBottom + M_BOTTOM
+        )
+    }
+    /* ******** end of animatesViewRemoval_includeMarginsTrue tests ******** */
+
     @Test
     fun animatesChildrenDuringViewRemoval() {
         setUpRootWithChildren()
@@ -905,6 +1238,60 @@ ViewHierarchyAnimatorTest : SysuiTestCase() {
     }
 
     @Test
+    fun animateRemoval_runnableRunsWhenAnimationEnds() {
+        var runnableRun = false
+        val onAnimationEndRunnable = { runnableRun = true }
+
+        setUpRootWithChildren()
+        forceLayout()
+        val removedView = rootView.getChildAt(0)
+
+        ViewHierarchyAnimator.animateRemoval(
+            removedView,
+            onAnimationEnd = onAnimationEndRunnable
+        )
+        endAnimation(removedView)
+
+        assertEquals(true, runnableRun)
+    }
+
+    @Test
+    fun animateRemoval_runnableDoesNotRunWhenAnimationCancelled() {
+        var runnableRun = false
+        val onAnimationEndRunnable = { runnableRun = true }
+
+        setUpRootWithChildren()
+        forceLayout()
+        val removedView = rootView.getChildAt(0)
+
+        ViewHierarchyAnimator.animateRemoval(
+            removedView,
+            onAnimationEnd = onAnimationEndRunnable
+        )
+        cancelAnimation(removedView)
+
+        assertEquals(false, runnableRun)
+    }
+
+    @Test
+    fun animationRemoval_runnableDoesNotRunWhenOnlyPartwayThroughAnimation() {
+        var runnableRun = false
+        val onAnimationEndRunnable = { runnableRun = true }
+
+        setUpRootWithChildren()
+        forceLayout()
+        val removedView = rootView.getChildAt(0)
+
+        ViewHierarchyAnimator.animateRemoval(
+            removedView,
+            onAnimationEnd = onAnimationEndRunnable
+        )
+        advanceAnimation(removedView, 0.5f)
+
+        assertEquals(false, runnableRun)
+    }
+
+    @Test
     fun cleansUpListenersCorrectly() {
         val firstChild = View(mContext)
         firstChild.layoutParams = LinearLayout.LayoutParams(50 /* width */, 100 /* height */)
@@ -937,7 +1324,7 @@ ViewHierarchyAnimatorTest : SysuiTestCase() {
     }
 
     @Test
-    fun doesNotAnimateInvisibleViews() {
+    fun doesNotAnimateGoneViews() {
         rootView.layout(10 /* l */, 10 /* t */, 50 /* r */, 50 /* b */)
 
         // GONE
@@ -948,15 +1335,6 @@ ViewHierarchyAnimatorTest : SysuiTestCase() {
         assertFalse(success)
         assertNull(rootView.getTag(R.id.tag_animator))
         checkBounds(rootView, l = 0, t = 15, r = 55, b = 80)
-
-        // INVISIBLE.
-        rootView.visibility = View.INVISIBLE
-        success = ViewHierarchyAnimator.animate(rootView)
-        rootView.layout(0 /* l */, 20 /* t */, 10 /* r */, 50 /* b */)
-
-        assertFalse(success)
-        assertNull(rootView.getTag(R.id.tag_animator))
-        checkBounds(rootView, l = 0, t = 20, r = 10, b = 50)
     }
 
     @Test
@@ -1082,7 +1460,7 @@ ViewHierarchyAnimatorTest : SysuiTestCase() {
         checkBounds(rootView, l = 10, t = 10, r = 50, b = 50)
     }
 
-    private fun setUpRootWithChildren() {
+    private fun setUpRootWithChildren(includeMarginsOnFirstChild: Boolean = false) {
         rootView = LinearLayout(mContext)
         (rootView as LinearLayout).orientation = LinearLayout.HORIZONTAL
         (rootView as LinearLayout).weightSum = 1f
@@ -1096,13 +1474,26 @@ ViewHierarchyAnimatorTest : SysuiTestCase() {
         val secondChild = View(mContext)
         rootView.addView(secondChild)
 
-        val childParams = LinearLayout.LayoutParams(
+        val firstChildParams = LinearLayout.LayoutParams(
             0 /* width */,
             LinearLayout.LayoutParams.MATCH_PARENT
         )
-        childParams.weight = 0.5f
-        firstChild.layoutParams = childParams
-        secondChild.layoutParams = childParams
+        firstChildParams.weight = 0.5f
+        if (includeMarginsOnFirstChild) {
+            firstChildParams.leftMargin = M_LEFT
+            firstChildParams.topMargin = M_TOP
+            firstChildParams.rightMargin = M_RIGHT
+            firstChildParams.bottomMargin = M_BOTTOM
+        }
+        firstChild.layoutParams = firstChildParams
+
+        val secondChildParams = LinearLayout.LayoutParams(
+            0 /* width */,
+            LinearLayout.LayoutParams.MATCH_PARENT
+        )
+        secondChildParams.weight = 0.5f
+        secondChild.layoutParams = secondChildParams
+
         firstGrandChild.layoutParams = RelativeLayout.LayoutParams(40 /* width */, 40 /* height */)
         (firstGrandChild.layoutParams as RelativeLayout.LayoutParams)
             .addRule(RelativeLayout.ALIGN_PARENT_START)
@@ -1162,6 +1553,16 @@ ViewHierarchyAnimatorTest : SysuiTestCase() {
         }
     }
 
+    private fun cancelAnimation(rootView: View) {
+        (rootView.getTag(R.id.tag_animator) as? ObjectAnimator)?.cancel()
+
+        if (rootView is ViewGroup) {
+            for (i in 0 until rootView.childCount) {
+                cancelAnimation(rootView.getChildAt(i))
+            }
+        }
+    }
+
     private fun endFadeInAnimation(rootView: View) {
         (rootView.getTag(R.id.tag_alpha_animator) as? ObjectAnimator)?.end()
 
@@ -1172,3 +1573,9 @@ ViewHierarchyAnimatorTest : SysuiTestCase() {
         }
     }
 }
+
+// Margin values.
+private const val M_LEFT = 14
+private const val M_TOP = 16
+private const val M_RIGHT = 18
+private const val M_BOTTOM = 20

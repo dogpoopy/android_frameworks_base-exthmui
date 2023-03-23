@@ -218,6 +218,8 @@ public class WindowOnBackInvokedDispatcher implements OnBackInvokedDispatcher {
     public Checker getChecker() {
         return mChecker;
     }
+    @NonNull
+    private static final BackProgressAnimator mProgressAnimator = new BackProgressAnimator();
 
     static class OnBackInvokedCallbackWrapper extends IOnBackInvokedCallback.Stub {
         private final WeakReference<OnBackInvokedCallback> mCallback;
@@ -227,11 +229,13 @@ public class WindowOnBackInvokedDispatcher implements OnBackInvokedDispatcher {
         }
 
         @Override
-        public void onBackStarted() {
+        public void onBackStarted(BackEvent backEvent) {
             Handler.getMain().post(() -> {
                 final OnBackAnimationCallback callback = getBackAnimationCallback();
                 if (callback != null) {
-                    callback.onBackStarted();
+                    mProgressAnimator.onBackStarted(backEvent, event ->
+                            callback.onBackProgressed(event));
+                    callback.onBackStarted(backEvent);
                 }
             });
         }
@@ -241,7 +245,7 @@ public class WindowOnBackInvokedDispatcher implements OnBackInvokedDispatcher {
             Handler.getMain().post(() -> {
                 final OnBackAnimationCallback callback = getBackAnimationCallback();
                 if (callback != null) {
-                    callback.onBackProgressed(backEvent);
+                    mProgressAnimator.onBackProgressed(backEvent);
                 }
             });
         }
@@ -249,6 +253,7 @@ public class WindowOnBackInvokedDispatcher implements OnBackInvokedDispatcher {
         @Override
         public void onBackCancelled() {
             Handler.getMain().post(() -> {
+                mProgressAnimator.reset();
                 final OnBackAnimationCallback callback = getBackAnimationCallback();
                 if (callback != null) {
                     callback.onBackCancelled();
@@ -259,11 +264,11 @@ public class WindowOnBackInvokedDispatcher implements OnBackInvokedDispatcher {
         @Override
         public void onBackInvoked() throws RemoteException {
             Handler.getMain().post(() -> {
+                mProgressAnimator.reset();
                 final OnBackInvokedCallback callback = mCallback.get();
                 if (callback == null) {
                     return;
                 }
-
                 callback.onBackInvoked();
             });
         }
@@ -327,7 +332,8 @@ public class WindowOnBackInvokedDispatcher implements OnBackInvokedDispatcher {
         public boolean checkApplicationCallbackRegistration(int priority,
                 OnBackInvokedCallback callback) {
             if (!mApplicationCallBackEnabled
-                    && !(callback instanceof CompatOnBackInvokedCallback)) {
+                    && !(callback instanceof CompatOnBackInvokedCallback)
+                    && !ALWAYS_ENFORCE_PREDICTIVE_BACK) {
                 Log.w("OnBackInvokedCallback",
                         "OnBackInvokedCallback is not enabled for the application."
                                 + "\nSet 'android:enableOnBackInvokedCallback=\"true\"' in the"
