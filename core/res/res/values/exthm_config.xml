@@ -32,6 +32,9 @@
       -->
     </string-array>
 
+    <!-- Whether to spoof device as Pixel XL for Google Photos -->
+    <bool name="config_spoofGooglePhotos">true</bool>
+
     <!-- Build fingerprint from the stock ROM -->
     <string name="config_stockFingerprint" translatable="false"></string>
 
