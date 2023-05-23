@@ -725,9 +725,9 @@ void BootAnimation::findBootAnimationFile() {
         }
     }
 
-    const int bootTheme = android::base::GetIntProperty("ro.boot.theme", 0);
+    //const int bootTheme = android::base::GetIntProperty("ro.boot.theme", 0);
     const int persistTheme = android::base::GetIntProperty("persist.sys.theme", 0);
-    const bool playDarkAnim = (bootTheme == 1) || (persistTheme == 2);
+    const bool playDarkAnim = (persistTheme == 2);
     static const std::vector<std::string> bootFiles = {
         playDarkAnim ? THEME_BOOTANIMATION_DARK_FILE : THEME_BOOTANIMATION_FILE,
         APEX_BOOTANIMATION_FILE, playDarkAnim ? PRODUCT_BOOTANIMATION_DARK_FILE : PRODUCT_BOOTANIMATION_FILE,
