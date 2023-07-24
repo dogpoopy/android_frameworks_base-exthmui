@@ -115,7 +115,6 @@ public class SeekBarVolumizer implements OnSeekBarChangeListener, Handler.Callba
     private final int mMaxStreamVolume;
     private boolean mAffectedByRingerMode;
     private boolean mNotificationOrRing;
-    private final boolean mNotifAliasRing;
     private final Receiver mReceiver = new Receiver();
 
     private Handler mHandler;
@@ -184,8 +183,6 @@ public class SeekBarVolumizer implements OnSeekBarChangeListener, Handler.Callba
         if (mNotificationOrRing) {
             mRingerMode = mAudioManager.getRingerModeInternal();
         }
-        mNotifAliasRing = mContext.getResources().getBoolean(
-                com.android.internal.R.bool.config_alias_ring_notif_stream_types);
         mZenMode = mNotificationManager.getZenMode();
 
         if (mDeviceHasProductStrategies) {
@@ -298,7 +295,9 @@ public class SeekBarVolumizer implements OnSeekBarChangeListener, Handler.Callba
              * so that when user attempts to slide the notification seekbar out of vibrate the
              * seekbar doesn't wrongly snap back to 0 when the streams aren't aliased
              */
-            if (mNotifAliasRing || mStreamType == AudioManager.STREAM_RING
+            if (!DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_SYSTEMUI,
+                    SystemUiDeviceConfigFlags.VOLUME_SEPARATE_NOTIFICATION, false)
+                    || mStreamType == AudioManager.STREAM_RING
                     || (mStreamType == AudioManager.STREAM_NOTIFICATION && mMuted)) {
                 mSeekBar.setProgress(0, true);
             }
@@ -393,7 +392,9 @@ public class SeekBarVolumizer implements OnSeekBarChangeListener, Handler.Callba
         // set the time of stop volume
         if ((mStreamType == AudioManager.STREAM_VOICE_CALL
                 || mStreamType == AudioManager.STREAM_RING
-                || (!mNotifAliasRing && mStreamType == AudioManager.STREAM_NOTIFICATION)
+                || (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_SYSTEMUI,
+                SystemUiDeviceConfigFlags.VOLUME_SEPARATE_NOTIFICATION, false)
+                && mStreamType == AudioManager.STREAM_NOTIFICATION)
                 || mStreamType == AudioManager.STREAM_ALARM)) {
             sStopVolumeTime = java.lang.System.currentTimeMillis();
         }
@@ -679,8 +680,10 @@ public class SeekBarVolumizer implements OnSeekBarChangeListener, Handler.Callba
         }
 
         private void updateVolumeSlider(int streamType, int streamValue) {
-            final boolean streamMatch = mNotifAliasRing && mNotificationOrRing
-                    ? isNotificationOrRing(streamType) : streamType == mStreamType;
+            final boolean streamMatch =  !DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_SYSTEMUI,
+                    SystemUiDeviceConfigFlags.VOLUME_SEPARATE_NOTIFICATION, false)
+                    && mNotificationOrRing ? isNotificationOrRing(streamType) :
+                    streamType == mStreamType;
             if (mSeekBar != null && streamMatch && streamValue != -1) {
                 final boolean muted = mAudioManager.isStreamMute(mStreamType)
                         || streamValue == 0;

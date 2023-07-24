@@ -1029,8 +1029,8 @@ public class AudioService extends IAudioService.Stub
         mUseVolumeGroupAliases = mContext.getResources().getBoolean(
                 com.android.internal.R.bool.config_handleVolumeAliasesUsingVolumeGroups);
 
-        mNotifAliasRing = mContext.getResources().getBoolean(
-                com.android.internal.R.bool.config_alias_ring_notif_stream_types);
+        mNotifAliasRing = !DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_SYSTEMUI,
+                SystemUiDeviceConfigFlags.VOLUME_SEPARATE_NOTIFICATION, false);
 
         // Initialize volume
         // Priority 1 - Android Property
