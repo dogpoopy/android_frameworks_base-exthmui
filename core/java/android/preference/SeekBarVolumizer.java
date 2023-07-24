@@ -16,7 +16,9 @@
 
 package android.preference;
 
+import android.Manifest;
 import android.annotation.NonNull;
+import android.annotation.RequiresPermission;
 import android.app.NotificationManager;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.content.BroadcastReceiver;
@@ -35,6 +37,7 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Message;
 import android.preference.VolumePreference.VolumeStore;
+import android.provider.DeviceConfig;
 import android.provider.Settings;
 import android.provider.Settings.Global;
 import android.provider.Settings.System;
@@ -44,6 +47,7 @@ import android.widget.SeekBar;
 import android.widget.SeekBar.OnSeekBarChangeListener;
 
 import com.android.internal.annotations.GuardedBy;
+import com.android.internal.config.sysui.SystemUiDeviceConfigFlags;
 import com.android.internal.os.SomeArgs;
 
 import java.util.concurrent.TimeUnit;
@@ -160,6 +164,7 @@ public class SeekBarVolumizer implements OnSeekBarChangeListener, Handler.Callba
         this(context, streamType, defaultUri, callback, true /* playSample */);
     }
 
+    @RequiresPermission(Manifest.permission.READ_DEVICE_CONFIG)
     public SeekBarVolumizer(
             Context context,
             int streamType,
