@@ -151,13 +151,6 @@ public interface StatusBarIconController {
      */
     void removeAllIconsForSlot(String slot);
 
-    /**
-     * Removes all the icons for the given slot.
-     *
-     * Only use this for icons that have come from **an external process**.
-     */
-    void removeAllIconsForExternalSlot(String slot);
-
     // TODO: See if we can rename this tunable name.
     String ICON_HIDE_LIST = "icon_blacklist";
 
