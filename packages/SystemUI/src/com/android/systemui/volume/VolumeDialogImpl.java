@@ -1148,10 +1148,16 @@ public class VolumeDialogImpl implements VolumeDialog, Dumpable,
     }
 
     private boolean isBluetoothA2dpConnected() {
-        BluetoothAdapter mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-        return mBluetoothAdapter != null && mBluetoothAdapter.isEnabled()
-                && mBluetoothAdapter.getProfileConnectionState(BluetoothProfile.A2DP)
-                == BluetoothProfile.STATE_CONNECTED;
+        final BluetoothAdapter mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+        return mBluetoothAdapter != null && mBluetoothAdapter.isEnabled() &&
+                mBluetoothAdapter.getProfileConnectionState(BluetoothProfile.A2DP)
+                        == BluetoothProfile.STATE_CONNECTED;
+    }
+
+    private boolean isMediaControllerAvailable() {
+        final MediaController mediaController = getActiveLocalMediaController();
+        return mediaController != null &&
+                !TextUtils.isEmpty(mediaController.getPackageName());
     }
 
     private void initSettingsH(int lockTaskModeState) {
@@ -1159,27 +1165,23 @@ public class VolumeDialogImpl implements VolumeDialog, Dumpable,
             mSettingsView.setVisibility(
                     mDeviceProvisionedController.isCurrentUserSetup() &&
                             lockTaskModeState == LOCK_TASK_MODE_NONE 
-                            && isBluetoothA2dpConnected()
+                            && (isMediaControllerAvailable() || isBluetoothA2dpConnected())
                             ? VISIBLE : GONE);
         }
         if (mSettingsIcon != null) {
             mSettingsIcon.setOnClickListener(v -> {
                 Events.writeEvent(Events.EVENT_SETTINGS_CLICK);
-                final MediaController mediaController = getActiveLocalMediaController();
-                String packageName =
-                        mediaController != null
-                                && !TextUtils.isEmpty(mediaController.getPackageName())
-                                ? mediaController.getPackageName()
-                                : "";
-                mMediaOutputDialogFactory.create(packageName, false, mDialogView);
+                String packageName = isMediaControllerAvailable()
+                        ? getActiveLocalMediaController().getPackageName() : "";
+                mMediaOutputDialogFactory.create(packageName, true, mDialogView);
                 dismissH(DISMISS_REASON_SETTINGS_CLICKED);
             });
         }
 
         if (mExpandRowsView != null) {
-            mExpandRowsView.setVisibility(mDeviceProvisionedController.isCurrentUserSetup()
-                    && mActivityManager.getLockTaskModeState() == LOCK_TASK_MODE_NONE
-                    ? VISIBLE : GONE);
+            mExpandRowsView.setVisibility(
+                    mDeviceProvisionedController.isCurrentUserSetup() &&
+                            lockTaskModeState == LOCK_TASK_MODE_NONE ? VISIBLE : GONE);
         }
         if (mExpandRows != null) {
             mExpandRows.setOnClickListener(v -> {
@@ -1528,7 +1530,9 @@ public class VolumeDialogImpl implements VolumeDialog, Dumpable,
                     mDialog.dismiss();
                     tryToRemoveCaptionsTooltip();
                     mExpanded = false;
-                    mExpandRows.setExpanded(mExpanded);
+                    if (mExpandRows != null) {
+                        mExpandRows.setExpanded(mExpanded);
+                    }
                     mAnimatingRows = 0;
                     mDefaultRow = null;
                     mIsAnimatingDismiss = false;
