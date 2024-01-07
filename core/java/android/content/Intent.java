@@ -4126,6 +4126,13 @@ public class Intent implements Parcelable, Cloneable {
      */
     public static final String ACTION_PROFILE_INACCESSIBLE =
             "android.intent.action.PROFILE_INACCESSIBLE";
+    
+    /**
+     * Broadcast sent to the parallel owner user when parallel space info has been refreshed.
+     * @hide
+     */
+    public static final String ACTION_PARALLEL_SPACE_CHANGED =
+            "android.intent.action.PARALLEL_SPACE_CHANGED";
 
     /**
      * Broadcast sent to the system user when the 'device locked' state changes for any user.
